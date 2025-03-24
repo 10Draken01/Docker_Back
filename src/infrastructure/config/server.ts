@@ -2,6 +2,9 @@
 import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
+import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { userRoutes } from '../routes/userRoutes';
 import { UserController } from '../controllers/UserController';
 import { MongoUserRepository } from '../repositories/MongoUserRepository';
@@ -15,6 +18,7 @@ import { UserService } from '../../domain/repositories/UserService';
 export class Server {
   private app: express.Application;
   private port: string;
+  private httpsServer: https.Server | null = null;
 
   constructor() {
     this.app = express();
@@ -83,8 +87,38 @@ export class Server {
   public async start(): Promise<void> {
     await this.connectDB();
     
-    this.app.listen(this.port, () => {
-      console.log(`🚀 Servidor mágico corriendo en el puerto ${this.port}`);
-    });
+    try {
+      // Configuración HTTPS
+      const httpsOptions = {
+        key: fs.readFileSync(path.join(__dirname, '../../certificates/privkey.pem')),
+        cert: fs.readFileSync(path.join(__dirname, '../../certificates/fullchain.pem')),
+        // Si tienes certificado de cadena, descomenta la siguiente línea
+        // ca: fs.readFileSync(path.join(__dirname, '../../../certificates/chain.pem'))
+      };
+      
+      // Crear servidor HTTPS
+      this.httpsServer = https.createServer(httpsOptions, this.app);
+      
+      // Iniciar servidor HTTPS
+      this.httpsServer.listen(this.port, () => {
+        console.log(`🔒 Servidor mágico seguro (HTTPS) corriendo en el puerto ${this.port}`);
+      });
+      
+    } catch (error) {
+      console.error('💀 Error al iniciar el servidor HTTPS:', error);
+      console.log('⚠️ Iniciando servidor HTTP como fallback...');
+      
+      // Fallback a HTTP si hay algún error con los certificados
+      this.app.listen(this.port, () => {
+        console.log(`🚀 Servidor mágico (HTTP) corriendo en el puerto ${this.port}`);
+      });
+    }
+  }
+  
+  public async stop(): Promise<void> {
+    if (this.httpsServer) {
+      this.httpsServer.close();
+    }
+    await mongoose.disconnect();
   }
 }
